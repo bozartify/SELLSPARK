@@ -8,7 +8,8 @@
     "dev:8750:webpack": "next dev -p 8750 -H 0.0.0.0 --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "github:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/sync-to-github.ps1"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
