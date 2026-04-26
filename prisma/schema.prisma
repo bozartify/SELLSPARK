@@ -1,0 +1,412 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Authentication ─────────────────────────────────────────────────────────
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  role          UserRole  @default(CREATOR)
+  onboarded     Boolean   @default(false)
+
+  // Quantum-safe session fingerprint
+  sessionFingerprint String?
+
+  accounts      Account[]
+  sessions      Session[]
+  store         Store?
+  products      Product[]
+  orders        Order[]
+  subscriptions Subscription[]
+  aiTools       AITool[]
+  analytics     Analytics[]
+  payoutAccount PayoutAccount?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+}
+
+enum UserRole {
+  CREATOR
+  CUSTOMER
+  ADMIN
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Creator Store ──────────────────────────────────────────────────────────
+model Store {
+  id          String      @id @default(cuid())
+  userId      String      @unique
+  name        String
+  slug        String      @unique
+  tagline     String?
+  bio         String?     @db.Text
+  logo        String?
+  banner      String?
+  style       StoreStyle  @default(MINIMAL)
+  layout      StoreLayout @default(GRID)
+
+  // Theme
+  primaryColor   String @default("#000000")
+  secondaryColor String @default("#6B7280")
+  accentColor    String @default("#3B82F6")
+  bgColor        String @default("#FFFFFF")
+  textColor      String @default("#111827")
+
+  // SEO
+  seoTitle       String?
+  seoDescription String?
+  seoKeywords    String[]
+
+  // Social links
+  instagram   String?
+  twitter     String?
+  youtube     String?
+  tiktok      String?
+  website     String?
+
+  // Settings
+  published   Boolean @default(false)
+  customDomain String?
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products    Product[]
+  sections    StoreSection[]
+  visitors    StoreVisitor[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+}
+
+enum StoreStyle {
+  MINIMAL
+  BOLD
+  ELEGANT
+  PLAYFUL
+  PROFESSIONAL
+}
+
+enum StoreLayout {
+  GRID
+  LIST
+  FEATURED
+  MAGAZINE
+}
+
+model StoreSection {
+  id      String @id @default(cuid())
+  storeId String
+  type    String
+  title   String
+  content String @db.Text
+  order   Int
+  visible Boolean @default(true)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+}
+
+model StoreVisitor {
+  id        String   @id @default(cuid())
+  storeId   String
+  sessionId String
+  referrer  String?
+  country   String?
+  device    String?
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([storeId, createdAt])
+}
+
+// ─── Products ───────────────────────────────────────────────────────────────
+model Product {
+  id          String      @id @default(cuid())
+  userId      String
+  storeId     String
+  name        String
+  slug        String
+  description String?     @db.Text
+  type        ProductType
+  price       Float
+  currency    String      @default("USD")
+  image       String?
+  images      String[]
+
+  // Digital product
+  fileUrl     String?
+  fileSize    Int?
+
+  // Course specific
+  modules     CourseModule[]
+
+  // Booking specific
+  duration    Int?        // minutes
+  availability Json?
+
+  // AI Tool specific
+  aiToolId    String?
+
+  // Settings
+  published   Boolean     @default(false)
+  featured    Boolean     @default(false)
+  maxSales    Int?
+  salesCount  Int         @default(0)
+
+  user        User        @relation(fields: [userId], references: [id])
+  store       Store       @relation(fields: [storeId], references: [id])
+  orders      OrderItem[]
+  reviews     Review[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([storeId, slug])
+  @@index([storeId, published])
+  @@index([type])
+}
+
+enum ProductType {
+  DIGITAL
+  COURSE
+  MEMBERSHIP
+  BOOKING
+  AI_TOOL
+}
+
+model CourseModule {
+  id        String @id @default(cuid())
+  productId String
+  title     String
+  content   String @db.Text
+  videoUrl  String?
+  order     Int
+  free      Boolean @default(false)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+// ─── Orders & Payments ──────────────────────────────────────────────────────
+model Order {
+  id              String      @id @default(cuid())
+  userId          String
+  stripePaymentId String?     @unique
+  status          OrderStatus @default(PENDING)
+  total           Float
+  currency        String      @default("USD")
+
+  user  User        @relation(fields: [userId], references: [id])
+  items OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum OrderStatus {
+  PENDING
+  COMPLETED
+  REFUNDED
+  FAILED
+}
+
+model OrderItem {
+  id        String @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int    @default(1)
+  price     Float
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+}
+
+model Subscription {
+  id                  String             @id @default(cuid())
+  userId              String
+  stripeSubscriptionId String?           @unique
+  plan                SubscriptionPlan
+  status              SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+enum SubscriptionPlan {
+  FREE
+  STARTER     // $19/mo
+  PRO         // $49/mo
+  BUSINESS    // $99/mo
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  PAUSED
+}
+
+model PayoutAccount {
+  id              String @id @default(cuid())
+  userId          String @unique
+  stripeAccountId String @unique
+  verified        Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+// ─── AI App Marketplace ─────────────────────────────────────────────────────
+model AITool {
+  id          String       @id @default(cuid())
+  creatorId   String
+  name        String
+  slug        String       @unique
+  description String       @db.Text
+  category    AICategory
+  icon        String?
+  price       Float        @default(0)
+
+  // Tool configuration
+  prompt      String       @db.Text
+  model       String       @default("claude-sonnet-4-6")
+  maxTokens   Int          @default(2048)
+  temperature Float        @default(0.7)
+  inputSchema Json?
+
+  // Stats
+  usageCount  Int          @default(0)
+  rating      Float        @default(0)
+  reviewCount Int          @default(0)
+
+  published   Boolean      @default(false)
+  featured    Boolean      @default(false)
+
+  creator     User         @relation(fields: [creatorId], references: [id])
+  reviews     Review[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([published, featured])
+}
+
+enum AICategory {
+  CONTENT_WRITING
+  IMAGE_GENERATION
+  VIDEO_EDITING
+  SOCIAL_MEDIA
+  EMAIL_MARKETING
+  SEO_OPTIMIZATION
+  ANALYTICS
+  CUSTOMER_SERVICE
+  SALES_COPY
+  EDUCATION
+  CUSTOM
+}
+
+// ─── Reviews ────────────────────────────────────────────────────────────────
+model Review {
+  id        String  @id @default(cuid())
+  rating    Int
+  comment   String? @db.Text
+
+  productId String?
+  aiToolId  String?
+
+  product   Product? @relation(fields: [productId], references: [id])
+  aiTool    AITool?  @relation(fields: [aiToolId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@index([aiToolId])
+}
+
+// ─── Analytics ──────────────────────────────────────────────────────────────
+model Analytics {
+  id       String        @id @default(cuid())
+  userId   String
+  type     AnalyticsType
+  metric   String
+  value    Float
+  metadata Json?
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, type, createdAt])
+}
+
+enum AnalyticsType {
+  REVENUE
+  VISITORS
+  CONVERSIONS
+  PAGE_VIEWS
+  AI_USAGE
+}
